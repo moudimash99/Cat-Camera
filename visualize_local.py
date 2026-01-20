@@ -22,10 +22,17 @@ os.makedirs(LABELS_DIR, exist_ok=True)
 # We use 'cuda' if you have an NVIDIA GPU, otherwise 'cpu' (slower but works)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_ID = "microsoft/Florence-2-large"
+# Pin HF revision to avoid unexpected code updates
+REVISION = "21a599d414c4d928c9032694c424fb94458e3594"
 
 print(f"Loading the Teacher Model ({MODEL_ID})... this may take a minute...")
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True, attn_implementation="eager").to(DEVICE).eval()
-processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    trust_remote_code=True,
+    attn_implementation="eager",
+    revision=REVISION,
+).to(DEVICE).eval()
+processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True, revision=REVISION)
 
 # Define your classes strictly
 # Prompt: The text description the AI looks for
@@ -38,7 +45,9 @@ TARGETS = [
 def run_florence_inference(image_pil, text_prompt):
     """Asks the 'Smart Model' to find the object."""
     task_prompt = "<CAPTION_TO_PHRASE_GROUNDING>"
-    results = processor(text=task_prompt, images=image_pil, return_tensors="pt")
+    # Florence-2 expects task token + input text for phrase grounding
+    full_text = f"{task_prompt}{text_prompt}"
+    results = processor(text=full_text, images=image_pil, return_tensors="pt")
     
     input_ids = results["input_ids"].to(DEVICE)
     pixel_values = results["pixel_values"].to(DEVICE)
@@ -48,7 +57,8 @@ def run_florence_inference(image_pil, text_prompt):
         input_ids=input_ids,
         pixel_values=pixel_values,
         max_new_tokens=1024,
-        num_beams=3
+        use_cache=True,
+        num_beams=1
     )
     generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     
