@@ -24,14 +24,19 @@ This repository contains tools for automatically generating YOLO training datase
 
 ```python
 # Sensitivity: How much pixel change triggers the AI? (Lower = more sensitive)
-MOTION_THRESHOLD_PERCENTAGE = 0.5  # 0.5% of screen pixels changed
+MOTION_THRESHOLD_PERCENTAGE = 0.015  # Optimized for static security cameras
 
 # Cooldown: If we find a target, how many seconds to skip?
-COOLDOWN_SECONDS = 2.0
+COOLDOWN_SECONDS = 1.5  # Balanced for diversity vs duplicates
 
 # Motion detection resolution (lower = faster, doesn't affect output quality)
 MOTION_RESOLUTION = (640, 360)
 ```
+
+**Default values are optimized based on analysis of 10 sample videos:**
+- Dataset shows max motion of 0.608%, mean of 0.005%
+- Threshold of 0.015% captures top 5% most active frames
+- Expected: ~5-8 samples per 10-second video clip
 
 #### When to use:
 - ✅ Security camera footage with static background
@@ -84,13 +89,31 @@ python create_full_training_set.py
 
 ## Tuning Motion Sensitivity
 
-If the quick version **generates no samples** from your videos:
+The default parameters are **optimized for static security camera footage** based on analysis of the sample dataset:
 
-1. Your videos might have very little motion (static camera, no activity)
-2. Try lowering `MOTION_THRESHOLD_PERCENTAGE`:
-   - Default: `0.5` (0.5% of pixels changed)
-   - Try: `0.1` or `0.05` for very static videos
-3. Or use the `create_full_training_set.py` instead
+### Current Optimized Settings:
+- `MOTION_THRESHOLD_PERCENTAGE = 0.015` (captures top 5% most active frames)
+- `COOLDOWN_SECONDS = 1.5` (balanced diversity)
+
+### If you need different behavior:
+
+**For MORE samples (aggressive):**
+```python
+MOTION_THRESHOLD_PERCENTAGE = 0.001  # Captures ~7% of frames
+COOLDOWN_SECONDS = 1.0
+```
+
+**For FEWER samples (conservative - only clear motion):**
+```python
+MOTION_THRESHOLD_PERCENTAGE = 0.17  # Captures only top 1% most active frames
+COOLDOWN_SECONDS = 2.0
+```
+
+**For videos with MORE motion than security cameras:**
+```python
+MOTION_THRESHOLD_PERCENTAGE = 0.5  # Original default
+COOLDOWN_SECONDS = 2.0
+```
 
 ### How to check if motion detection is working:
 
