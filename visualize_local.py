@@ -63,13 +63,17 @@ def run_florence_inference(image_pil, text_prompt):
 def process_videos():
     video_files = sorted(list(Path(INPUT_VIDEO_FOLDER).glob("*.mp4")))
     total_samples = 0
+    total_videos = len(video_files)
     
-    print(f"Starting Auto-Labeling on {len(video_files)} videos...")
+    print(f"Starting Auto-Labeling on {total_videos} videos...")
 
-    for video_path in video_files:
+    for video_idx, video_path in enumerate(video_files, 1):
         cap = cv2.VideoCapture(str(video_path))
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_interval = int(fps * 2) # Capture 1 frame every 2 seconds (Diversity > Quantity)
+        
+        video_progress = (video_idx - 1) / total_videos * 100
+        print(f"\n[Video {video_idx}/{total_videos} - {video_progress:.1f}%] Processing: {video_path.name}")
         
         frame_idx = 0
         while cap.isOpened():
@@ -125,7 +129,8 @@ def process_videos():
                     f.write("\n".join(yolo_labels))
                 
                 total_samples += 1
-                print(f"Captured Sample #{total_samples}: {video_path.name} (Time: {frame_idx/fps:.1f}s)")
+                percent_complete = (video_idx / total_videos) * 100
+                print(f"Captured Sample #{total_samples}: {video_path.name} (Time: {frame_idx/fps:.1f}s) [{percent_complete:.1f}%]")
             
             frame_idx += 1
             
