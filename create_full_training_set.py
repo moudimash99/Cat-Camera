@@ -57,8 +57,8 @@ def run_florence_inference(image_pil, text_prompt):
         input_ids=input_ids,
         pixel_values=pixel_values,
         max_new_tokens=1024,
-        use_cache=True,
-        num_beams=1
+        use_cache=False,
+        num_beams=3
     )
     generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     
