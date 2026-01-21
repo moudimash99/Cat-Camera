@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
-
+ 
 # ================= CONFIGURATION =================
 INPUT_VIDEO_FOLDER = "./downloads"
 DATASET_DIR = "./dataset_training"
@@ -52,7 +52,7 @@ def run_florence_inference(image_pil, text_prompt):
 
     generated_ids = model.generate(
         input_ids=input_ids, pixel_values=pixel_values,
-        max_new_tokens=1024, use_cache=True, num_beams=1
+        max_new_tokens=1024, use_cache=False, num_beams=1
     )
     generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     parsed_answer = processor.post_process_generation(

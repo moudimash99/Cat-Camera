@@ -1,6 +1,6 @@
 # Ignore dataset training output
-dataset_training/images/*.jpg
-dataset_training/labels/*.txt
+# dataset_training/images/*.jpg
+# dataset_training/labels/*.txt
 
 # Python cache
 __pycache__/
