@@ -27,8 +27,30 @@ class SuppressStderr:
             os.close(fd)
 
 # ================= 2. CONFIGURATION =================
-INPUT_VIDEO_FOLDER = "./downloads_big1h"
-DATASET_DIR = "./dataset_training"
+INPUT_VIDEO_FOLDER = "./downloads_mini"
+OUTPUT_DIR = "./output"
+BASE_DATASET_DIR = os.path.join(OUTPUT_DIR, "dataset_training")
+
+# Find the next available incremental folder ID
+def get_next_dataset_folder():
+    """Find the next available incremental folder ID"""
+    max_id = -1
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Check for any existing numbered folders
+    if os.path.exists(OUTPUT_DIR):
+        for item in os.listdir(OUTPUT_DIR):
+            if item.startswith("dataset_training_") and os.path.isdir(os.path.join(OUTPUT_DIR, item)):
+                try:
+                    folder_id = int(item.split("_")[-1])
+                    max_id = max(max_id, folder_id)
+                except ValueError:
+                    pass
+    
+    return max_id + 1
+
+DATASET_ID = get_next_dataset_folder()
+DATASET_DIR = os.path.join(OUTPUT_DIR, f"dataset_training_{DATASET_ID}")
 IMAGES_DIR = os.path.join(DATASET_DIR, "images")
 LABELS_DIR = os.path.join(DATASET_DIR, "labels")
 
@@ -62,7 +84,39 @@ TARGETS = [
     {"prompt": "black cat",  "id": 1, "name": "Nala"}
 ]
 
+def check_target_presence(image_pil, target_name):
+    """
+    Check if a target (e.g., 'orange cat', 'black cat') is present in the image.
+    Uses caption task to determine presence before running expensive grounding.
+    Returns: True if target is likely present, False otherwise
+    """
+    task_prompt = "<CAPTION>"
+    results = processor(text=task_prompt, images=image_pil, return_tensors="pt")
+    
+    input_ids = results["input_ids"].to(DEVICE)
+    pixel_values = results["pixel_values"].to(DEVICE)
+
+    generated_ids = model.generate(
+        input_ids=input_ids, pixel_values=pixel_values,
+        max_new_tokens=256, use_cache=False, num_beams=1
+    )
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+    parsed_answer = processor.post_process_generation(
+        generated_text, task=task_prompt, image_size=(image_pil.width, image_pil.height)
+    )
+    
+    caption = parsed_answer[task_prompt].lower()
+    # Check if target words appear in the caption
+    target_words = target_name.lower().split()
+    is_present = all(word in caption for word in target_words)
+    
+    return is_present, caption
+
 def run_florence_inference(image_pil, text_prompt):
+    """
+    Run grounding inference to find bounding boxes for the given prompt.
+    Should only be called after confirming target presence.
+    """
     task_prompt = "<CAPTION_TO_PHRASE_GROUNDING>"
     full_text = f"{task_prompt}{text_prompt}"
     results = processor(text=full_text, images=image_pil, return_tensors="pt")
@@ -148,7 +202,18 @@ def process_videos():
             yolo_labels = []
             has_detection = False
             
+            # First, check which targets are present in the image
+            present_targets = []
             for target in TARGETS:
+                is_present, caption = check_target_presence(image_pil, target["prompt"])
+                if is_present:
+                    present_targets.append(target)
+                    # print(f"    ✓ Found {target['name']} (Caption: {caption})")
+                # else:
+                    # print(f"    ✗ No {target['name']} detected")
+            
+            # Only run grounding on confirmed targets
+            for target in present_targets:
                 prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
                 
@@ -193,6 +258,7 @@ def process_videos():
 
     print(f"------------------------------------------------")
     print(f"Distillation Complete. {total_samples} labelled images generated.")
+    print(f"Output saved to: {DATASET_DIR}")
 
 # ================= 5. MAIN EXECUTION =================
 if __name__ == "__main__":
