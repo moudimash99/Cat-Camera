@@ -1,13 +1,33 @@
 import cv2
 import torch
 import os
+import sys
 import numpy as np
 from pathlib import Path
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
- 
-# ================= CONFIGURATION =================
-INPUT_VIDEO_FOLDER = "./downloads"
+
+# ================= 1. SILENCER CLASS =================
+class SuppressStderr:
+    """
+    Redirects low-level C libraries (like FFmpeg) to the void
+    so they don't spam the console.
+    """
+    def __init__(self):
+        # Open a pair of null files
+        self.null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        self.save_fds = [os.dup(2)] # Save the original stderr (2)
+
+    def __enter__(self):
+        os.dup2(self.null_fds[1], 2) # Redirect stderr to null
+
+    def __exit__(self, *_):
+        os.dup2(self.save_fds[0], 2) # Restore stderr
+        for fd in self.null_fds + self.save_fds:
+            os.close(fd)
+
+# ================= 2. CONFIGURATION =================
+INPUT_VIDEO_FOLDER = "./downloads_big1h"
 DATASET_DIR = "./dataset_training"
 IMAGES_DIR = os.path.join(DATASET_DIR, "images")
 LABELS_DIR = os.path.join(DATASET_DIR, "labels")
@@ -174,5 +194,9 @@ def process_videos():
     print(f"------------------------------------------------")
     print(f"Distillation Complete. {total_samples} labelled images generated.")
 
+# ================= 5. MAIN EXECUTION =================
 if __name__ == "__main__":
-    process_videos()
+    # We wrap the main call in the silencer
+    print("Initializing... (FFmpeg warnings will be suppressed)")
+    with SuppressStderr():
+        process_videos()
