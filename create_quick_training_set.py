@@ -73,6 +73,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_ID = "microsoft/Florence-2-large"
 REVISION = "21a599d414c4d928c9032694c424fb94458e3594"
 
+# Keywords to detect cats in captions
+CAT_KEYWORDS = ["cat", "kitten", "feline"]
+
 print(f"Loading Teacher Model ({DEVICE})...")
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, trust_remote_code=True, attn_implementation="eager", revision=REVISION
@@ -84,11 +87,11 @@ TARGETS = [
     {"prompt": "black cat",  "id": 1, "name": "Nala"}
 ]
 
-def check_target_presence(image_pil, target_name):
+def check_target_presence(image_pil):
     """
-    Check if a target (e.g., 'orange cat', 'black cat') is present in the image.
+    Check if a cat is present in the image.
     Uses caption task to determine presence before running expensive grounding.
-    Returns: True if target is likely present, False otherwise
+    Returns: True if a cat is likely present, False otherwise, and the caption
     """
     task_prompt = "<CAPTION>"
     results = processor(text=task_prompt, images=image_pil, return_tensors="pt")
@@ -107,9 +110,9 @@ def check_target_presence(image_pil, target_name):
     
     caption = parsed_answer[task_prompt].lower()
     # Check if a cat is present in the image
-    # Use lenient matching: just check if "cat", "kitten", or "feline" is mentioned
+    # Use lenient matching: just check if any cat-related keyword is mentioned
     # The subsequent grounding task will handle specific target matching (orange/black)
-    has_cat = any(word in caption for word in ["cat", "kitten", "feline"])
+    has_cat = any(word in caption for word in CAT_KEYWORDS)
     
     is_present = has_cat
     
@@ -205,18 +208,16 @@ def process_videos():
             yolo_labels = []
             has_detection = False
             
-            # First, check which targets are present in the image
-            present_targets = []
-            for target in TARGETS:
-                is_present, caption = check_target_presence(image_pil, target["prompt"])
-                if is_present:
-                    present_targets.append(target)
-                    # print(f"    ✓ Found {target['name']} (Caption: {caption})")
-                # else:
-                    # print(f"    ✗ No {target['name']} detected")
+            # First, check if any cat is present in the image
+            is_present, caption = check_target_presence(image_pil)
             
-            # Only run grounding on confirmed targets
-            for target in present_targets:
+            if not is_present:
+                # No cat detected, skip this frame
+                frame_idx += 1
+                continue
+            
+            # Cat detected! Now check which specific targets (orange/black) are present
+            for target in TARGETS:
                 prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
                 
