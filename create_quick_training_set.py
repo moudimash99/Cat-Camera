@@ -56,8 +56,8 @@ LABELS_DIR = os.path.join(DATASET_DIR, "labels")
 
 # Sensitivity: How much pixel change triggers the AI? (Lower = more sensitive)
 # 1.0 means 1% of the screen changed pixels.
-# Optimized for static security camera footage based on dataset analysis
-MOTION_THRESHOLD_PERCENTAGE = 0.015  # Captures top 5% most active frames
+# Set to 0 to accept any motion above 0
+MOTION_THRESHOLD_PERCENTAGE = 0.0  # Accept any motion detected
 
 # Cooldown: If we find a target, how many seconds to skip?
 COOLDOWN_SECONDS = 1.5  # Balanced to avoid duplicates while maintaining diversity 
