@@ -73,8 +73,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_ID = "microsoft/Florence-2-large"
 REVISION = "21a599d414c4d928c9032694c424fb94458e3594"
 
-# Keywords to detect cats in captions
-CAT_KEYWORDS = ["cat", "kitten", "feline"]
+# Keywords to detect cats in captions (including plurals and common variations)
+CAT_KEYWORDS = ["cat", "cats", "kitten", "kittens", "feline", "felines", "kitty", "kitties"]
 
 print(f"Loading Teacher Model ({DEVICE})...")
 model = AutoModelForCausalLM.from_pretrained(
@@ -114,9 +114,7 @@ def check_target_presence(image_pil):
     # The subsequent grounding task will handle specific target matching (orange/black)
     has_cat = any(word in caption for word in CAT_KEYWORDS)
     
-    is_present = has_cat
-    
-    return is_present, caption
+    return has_cat, caption
 
 def run_florence_inference(image_pil, text_prompt):
     """
