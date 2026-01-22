@@ -57,7 +57,7 @@ LABELS_DIR = os.path.join(DATASET_DIR, "labels")
 # Sensitivity: How much pixel change triggers the AI? (Lower = more sensitive)
 # 1.0 means 1% of the screen changed pixels.
 # Optimized for static security camera footage based on dataset analysis
-MOTION_THRESHOLD_PERCENTAGE = 0.015  # Captures top 5% most active frames
+MOTION_THRESHOLD_PERCENTAGE = 0.0  # Captures top 5% most active frames
 
 # Cooldown: If we find a target, how many seconds to skip?
 COOLDOWN_SECONDS = 1.5  # Balanced to avoid duplicates while maintaining diversity 
@@ -165,19 +165,28 @@ def process_videos():
     total_samples = 0
     
     print(f"Starting Smart Motion Auto-Labeling on {len(video_files)} videos...")
+    print(f"Input folder: {INPUT_VIDEO_FOLDER}")
+    print(f"Output folder: {DATASET_DIR}")
+    print(f"Motion threshold: {MOTION_THRESHOLD_PERCENTAGE}%")
+    print(f"Cooldown: {COOLDOWN_SECONDS}s")
 
     for video_idx, video_path in enumerate(video_files, 1):
         cap = cv2.VideoCapture(str(video_path))
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
+        # if video_idx != 6:
+        #     continue  # TEMP SKIP FOR TESTING
+
         # Calculate frames to jump for cooldown
         cooldown_frames = int(fps * COOLDOWN_SECONDS)
         
-        print(f"\n[Video {video_idx}/{len(video_files)}] {video_path.name} | FPS: {fps}")
+        print(f"\n[Video {video_idx}/{len(video_files)}] {video_path.name} | FPS: {fps} | Total Frames: {total_frames}")
+        print(f"  Cooldown frames: {cooldown_frames}")
         
         prev_gray_small = None
         frame_idx = 0
+        frames_checked = 0
+        frames_with_motion = 0
         
         while cap.isOpened():
             ret, frame = cap.read()
@@ -188,14 +197,22 @@ def process_videos():
             
             # Update previous frame for next loop
             prev_gray_small = current_gray_small 
+            frames_checked += 1
+            
+            # Progress update every 100 frames
+            if frames_checked % 100 == 0:
+                print(f"  > Frame {frame_idx}/{total_frames} ({(frame_idx/total_frames)*100:.1f}%) | Motion: {motion_score:.6f}% | Detected motion in {frames_with_motion} frames so far")
             
             # If motion is too low, skip this frame
-            if motion_score < MOTION_THRESHOLD_PERCENTAGE:
+            if motion_score <= MOTION_THRESHOLD_PERCENTAGE:
                 frame_idx += 1
                 continue
+            
+            frames_with_motion += 1
+            print(f"  >> MOTION DETECTED at frame {frame_idx} ({frame_idx/fps:.1f}s) | Score: {motion_score:.6f}%")
                 
             # --- 2. HEAVY LIFTING (Only runs if motion detected) ---
-            # print(f"  > Motion detected ({motion_score:.2f}%) at {frame_idx/fps:.1f}s. Checking AI...")
+            print(f"  >> Running AI detection...")
             
             image_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             w, h = image_pil.size
@@ -205,19 +222,25 @@ def process_videos():
             # First, check which targets are present in the image
             present_targets = []
             for target in TARGETS:
+                print(f"     Checking for {target['name']}...", end=" ")
                 is_present, caption = check_target_presence(image_pil, target["prompt"])
                 if is_present:
                     present_targets.append(target)
-                    # print(f"    ✓ Found {target['name']} (Caption: {caption})")
-                # else:
-                    # print(f"    ✗ No {target['name']} detected")
+                    print(f"✓ FOUND (Caption: '{caption}')")
+                else:
+                    print(f"✗ Not found (Caption: '{caption}')")
             
             # Only run grounding on confirmed targets
+            if present_targets:
+                print(f"     Running bounding box detection for {len(present_targets)} target(s)...")
+            
             for target in present_targets:
+                print(f"     Getting bounding boxes for {target['name']}...", end=" ")
                 prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
+                print(f"Found {len(bboxes)} bbox(es)")
                 
-                for bbox in bboxes:
+                for bbox_idx, bbox in enumerate(bboxes, 1):
                     x1, y1, x2, y2 = bbox
                     
                     # Normalize for YOLO
@@ -228,16 +251,22 @@ def process_videos():
                     
                     yolo_labels.append(f"{target['id']} {b_cx:.6f} {b_cy:.6f} {b_w:.6f} {b_h:.6f}")
                     has_detection = True
+                    print(f"       BBox #{bbox_idx}: x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}")
 
             # --- 3. SAVE & COOLDOWN ---
             if has_detection:
                 base_name = f"{video_path.stem}_{frame_idx}"
-                cv2.imwrite(os.path.join(IMAGES_DIR, f"{base_name}.jpg"), frame)
-                with open(os.path.join(LABELS_DIR, f"{base_name}.txt"), "w") as f:
+                image_path = os.path.join(IMAGES_DIR, f"{base_name}.jpg")
+                label_path = os.path.join(LABELS_DIR, f"{base_name}.txt")
+                
+                cv2.imwrite(image_path, frame)
+                with open(label_path, "w") as f:
                     f.write("\n".join(yolo_labels))
                 
                 total_samples += 1
-                print(f"  [+] Captured Sample #{total_samples} at {frame_idx/fps:.1f}s (Motion: {motion_score:.1f}%)")
+                print(f"  [+] ✓ SAVED Sample #{total_samples} at {frame_idx/fps:.1f}s (Motion: {motion_score:.4f}%)")
+                print(f"      Image: {image_path}")
+                print(f"      Label: {label_path} ({len(yolo_labels)} detection(s))")
                 
                 # --- APPLY COOLDOWN CURSOR ---
                 # Jump forward in the video file
@@ -247,18 +276,34 @@ def process_videos():
                 if new_pos < total_frames:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
                     frame_idx = int(new_pos)
+                    print(f"      Jumping ahead {cooldown_frames} frames to frame {frame_idx}")
                     # Reset motion baseline because we jumped (scene might have changed)
                     prev_gray_small = None 
                 else:
+                    print(f"      Reached end of video after cooldown jump")
                     break # End of video
             else:
+                print(f"     ✗ No detections found despite motion - continuing...")
                 frame_idx += 1
 
         cap.release()
+        print(f"  Video complete: {frames_checked} frames checked, {frames_with_motion} had motion above threshold")
 
-    print(f"------------------------------------------------")
-    print(f"Distillation Complete. {total_samples} labelled images generated.")
-    print(f"Output saved to: {DATASET_DIR}")
+    print(f"\n" + "="*60)
+    print(f"DISTILLATION COMPLETE")
+    print(f"="*60)
+    print(f"Total samples generated: {total_samples}")
+    print(f"Output directory: {DATASET_DIR}")
+    print(f"Images saved to: {IMAGES_DIR}")
+    print(f"Labels saved to: {LABELS_DIR}")
+    
+    # Verify files were created
+    import glob
+    image_count = len(glob.glob(os.path.join(IMAGES_DIR, "*.jpg")))
+    label_count = len(glob.glob(os.path.join(LABELS_DIR, "*.txt")))
+    print(f"\nVerification:")
+    print(f"  Images on disk: {image_count}")
+    print(f"  Labels on disk: {label_count}")
 
 # ================= 5. MAIN EXECUTION =================
 if __name__ == "__main__":
