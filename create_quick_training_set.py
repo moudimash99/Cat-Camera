@@ -226,6 +226,11 @@ def process_videos():
     # Initialize Tracker
     perf = PerformanceTracker()
     
+    # Create labels.txt with class names
+    labels_txt_path = os.path.join(LABELS_DIR, "labels.txt")
+    with open(labels_txt_path, "w") as f:
+        f.write("Simba\nNala\n")
+    
     print(f"Starting Smart Motion Auto-Labeling on {len(video_files)} videos...")
     print(f"Input folder: {INPUT_VIDEO_FOLDER}")
     print(f"Output folder: {DATASET_DIR}")
