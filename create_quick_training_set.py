@@ -28,6 +28,7 @@ class SuppressStderr:
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
 
+# ================= 2. CONFIGURATION =================
 # ================= 2. PERFORMANCE TRACKER CLASS =================
 class PerformanceTracker:
     def __init__(self):
@@ -67,7 +68,7 @@ class TimingContext:
         self.tracker.counts[self.name] += 1
 
 # ================= 3. CONFIGURATION =================
-INPUT_VIDEO_FOLDER = "./downloads_mini"
+INPUT_VIDEO_FOLDER = "./downloads_big1h"
 OUTPUT_DIR = "./output"
 BASE_DATASET_DIR = os.path.join(OUTPUT_DIR, "dataset_training")
 
