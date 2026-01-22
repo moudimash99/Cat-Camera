@@ -27,7 +27,7 @@ class SuppressStderr:
             os.close(fd)
 
 # ================= 2. CONFIGURATION =================
-INPUT_VIDEO_FOLDER = "./downloads_mini"
+INPUT_VIDEO_FOLDER = "./downloads_big1h"
 OUTPUT_DIR = "./output"
 BASE_DATASET_DIR = os.path.join(OUTPUT_DIR, "dataset_training")
 
