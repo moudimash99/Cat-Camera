@@ -57,13 +57,16 @@ LABELS_DIR = os.path.join(DATASET_DIR, "labels")
 # Sensitivity: How much pixel change triggers the AI? (Lower = more sensitive)
 # 1.0 means 1% of the screen changed pixels.
 # Optimized for static security camera footage based on dataset analysis
-MOTION_THRESHOLD_PERCENTAGE = 0.0  # Captures top 5% most active frames
+MOTION_THRESHOLD_PERCENTAGE = 0.0015  # Captures top 5% most active frames
 
 # Cooldown: If we find a target, how many seconds to skip?
 COOLDOWN_SECONDS = 1.5  # Balanced to avoid duplicates while maintaining diversity 
 
 # Resize for motion check (Speed optimization - doesn't affect final image)
 MOTION_RESOLUTION = (640, 360) 
+
+# FILTER: Ignore boxes smaller than this % of the screen (removes tiny specks)
+MIN_BOX_AREA_PERCENT = 0.0 
 
 os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(LABELS_DIR, exist_ok=True)
@@ -84,38 +87,9 @@ TARGETS = [
     {"prompt": "black cat",  "id": 1, "name": "Nala"}
 ]
 
-def check_target_presence(image_pil, target_name):
-    """
-    Check if a target (e.g., 'orange cat', 'black cat') is present in the image.
-    Uses caption task to determine presence before running expensive grounding.
-    Returns: True if target is likely present, False otherwise
-    """
-    task_prompt = "<CAPTION>"
-    results = processor(text=task_prompt, images=image_pil, return_tensors="pt")
-    
-    input_ids = results["input_ids"].to(DEVICE)
-    pixel_values = results["pixel_values"].to(DEVICE)
-
-    generated_ids = model.generate(
-        input_ids=input_ids, pixel_values=pixel_values,
-        max_new_tokens=256, use_cache=False, num_beams=1
-    )
-    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-    parsed_answer = processor.post_process_generation(
-        generated_text, task=task_prompt, image_size=(image_pil.width, image_pil.height)
-    )
-    
-    caption = parsed_answer[task_prompt].lower()
-    # Check if target words appear in the caption
-    target_words = target_name.lower().split()
-    is_present = all(word in caption for word in target_words)
-    
-    return is_present, caption
-
 def run_florence_inference(image_pil, text_prompt):
     """
     Run grounding inference to find bounding boxes for the given prompt.
-    Should only be called after confirming target presence.
     """
     task_prompt = "<CAPTION_TO_PHRASE_GROUNDING>"
     full_text = f"{task_prompt}{text_prompt}"
@@ -134,12 +108,57 @@ def run_florence_inference(image_pil, text_prompt):
     )
     return parsed_answer[task_prompt]
 
+def verify_crop(image_pil, bbox, target_name):
+    """
+    Crops the detected area and asks the model to describe it.
+    Returns True if the description confirms it's a cat.
+    """
+    # 1. Crop the image based on the bounding box
+    x1, y1, x2, y2 = map(int, bbox)
+    
+    # Safety check for image boundaries
+    w, h = image_pil.size
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    
+    # If crop is invalid (too small/inverted), reject
+    if x2 - x1 < 10 or y2 - y1 < 10: 
+        return False, "invalid_crop"
+
+    crop = image_pil.crop((x1, y1, x2, y2))
+    
+    # 2. Run Simple Captioning on the crop
+    task_prompt = "<CAPTION>"
+    results = processor(text=task_prompt, images=crop, return_tensors="pt")
+    
+    input_ids = results["input_ids"].to(DEVICE)
+    pixel_values = results["pixel_values"].to(DEVICE)
+
+    generated_ids = model.generate(
+        input_ids=input_ids, pixel_values=pixel_values,
+        max_new_tokens=256, use_cache=False, num_beams=1
+    )
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+    parsed_answer = processor.post_process_generation(
+        generated_text, task=task_prompt, image_size=(crop.width, crop.height)
+    )
+    
+    caption = parsed_answer[task_prompt].lower()
+    
+    # 3. Validation Logic
+    # We check for generic terms because a close-up might just be "a cat face"
+    valid_keywords = ["cat", "kitten", "feline", "animal", "mammal", "pet", target_name.split()[0].lower()]
+    
+    # Reject common false positives explicitly
+    invalid_keywords = ["pillow", "cushion", "shadow", "floor", "blanket", "shoe"]
+    
+    is_valid = any(word in caption for word in valid_keywords)
+    # Optional: stricter check (if it contains an invalid word, reject it)
+    # if any(word in caption for word in invalid_keywords): is_valid = False
+    
+    return is_valid, caption
+
 def get_motion_score(current_frame, prev_frame_small):
-    """
-    Calculates percentage of changed pixels. 
-    Returns: score (float), current_frame_small (for next iteration)
-    """
-    # Resize and blur to remove noise (wind/leaves)
     curr_small = cv2.resize(current_frame, MOTION_RESOLUTION)
     curr_gray = cv2.cvtColor(curr_small, cv2.COLOR_BGR2GRAY)
     curr_gray = cv2.GaussianBlur(curr_gray, (21, 21), 0)
@@ -147,16 +166,16 @@ def get_motion_score(current_frame, prev_frame_small):
     if prev_frame_small is None:
         return 0.0, curr_gray
 
-    # Compute absolute difference
     delta = cv2.absdiff(prev_frame_small, curr_gray)
     
+    # Calculate percentage of screen changed
+    # total_pixels = thresh.size
+    # changed_pixels = np.count_nonzero(thresh)
+    # score = (changed_pixels / total_pixels) * 100
+
     # Threshold: highlight changed pixels (value 25 is arbitrary threshold for pixel intensity)
     _, thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)
-    
-    # Calculate percentage of screen changed
-    total_pixels = thresh.size
-    changed_pixels = np.count_nonzero(thresh)
-    score = (changed_pixels / total_pixels) * 100
+    score = (np.count_nonzero(thresh) / thresh.size) * 100
     
     return score, curr_gray
 
@@ -169,6 +188,7 @@ def process_videos():
     print(f"Output folder: {DATASET_DIR}")
     print(f"Motion threshold: {MOTION_THRESHOLD_PERCENTAGE}%")
     print(f"Cooldown: {COOLDOWN_SECONDS}s")
+    print(f"Method: Direct Grounding -> Crop Verification")
 
     for video_idx, video_path in enumerate(video_files, 1):
         cap = cv2.VideoCapture(str(video_path))
@@ -194,8 +214,6 @@ def process_videos():
             
             # --- 1. FAST MOTION CHECK ---
             motion_score, current_gray_small = get_motion_score(frame, prev_gray_small)
-            
-            # Update previous frame for next loop
             prev_gray_small = current_gray_small 
             frames_checked += 1
             
@@ -203,8 +221,7 @@ def process_videos():
             if frames_checked % 100 == 0:
                 print(f"  > Frame {frame_idx}/{total_frames} ({(frame_idx/total_frames)*100:.1f}%) | Motion: {motion_score:.6f}% | Detected motion in {frames_with_motion} frames so far")
             
-            # If motion is too low, skip this frame
-            if motion_score <= MOTION_THRESHOLD_PERCENTAGE:
+            if motion_score < MOTION_THRESHOLD_PERCENTAGE:
                 frame_idx += 1
                 continue
             
@@ -219,23 +236,8 @@ def process_videos():
             yolo_labels = []
             has_detection = False
             
-            # First, check which targets are present in the image
-            present_targets = []
+            # Check for each target directly (skipping the "is it there?" check)
             for target in TARGETS:
-                print(f"     Checking for {target['name']}...", end=" ")
-                is_present, caption = check_target_presence(image_pil, target["prompt"])
-                if is_present:
-                    present_targets.append(target)
-                    print(f"✓ FOUND (Caption: '{caption}')")
-                else:
-                    print(f"✗ Not found (Caption: '{caption}')")
-            
-            # Only run grounding on confirmed targets
-            if present_targets:
-                print(f"     Running bounding box detection for {len(present_targets)} target(s)...")
-            
-            for target in present_targets:
-                print(f"     Getting bounding boxes for {target['name']}...", end=" ")
                 prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
                 print(f"Found {len(bboxes)} bbox(es)")
@@ -243,15 +245,27 @@ def process_videos():
                 for bbox_idx, bbox in enumerate(bboxes, 1):
                     x1, y1, x2, y2 = bbox
                     
-                    # Normalize for YOLO
-                    b_cx = ((x1 + x2) / 2) / w
-                    b_cy = ((y1 + y2) / 2) / h
-                    b_w = (x2 - x1) / w
-                    b_h = (y2 - y1) / h
+                    # A. Filter by Size (Ignore tiny specks/noise)
+                    box_area_percent = ((x2 - x1) * (y2 - y1)) / (w * h)
+                    if box_area_percent < MIN_BOX_AREA_PERCENT:
+                        continue 
                     
-                    yolo_labels.append(f"{target['id']} {b_cx:.6f} {b_cy:.6f} {b_w:.6f} {b_h:.6f}")
-                    has_detection = True
-                    print(f"       BBox #{bbox_idx}: x1={x1:.1f}, y1={y1:.1f}, x2={x2:.1f}, y2={y2:.1f}")
+                    # B. Verify Content (Crop & Check)
+                    is_valid, crop_caption = verify_crop(image_pil, bbox, target["prompt"])
+                    
+                    if is_valid:
+                        # Normalize for YOLO
+                        b_cx = ((x1 + x2) / 2) / w
+                        b_cy = ((y1 + y2) / 2) / h
+                        b_w = (x2 - x1) / w
+                        b_h = (y2 - y1) / h
+                        
+                        yolo_labels.append(f"{target['id']} {b_cx:.6f} {b_cy:.6f} {b_w:.6f} {b_h:.6f}")
+                        has_detection = True
+                        print(f"       ✓ FOUND {target['name']} (Verified: '{crop_caption}')")
+                    else:
+                        # print(f"       ✗ Rejected false positive (Caption: '{crop_caption}')")
+                        pass
 
             # --- 3. SAVE & COOLDOWN ---
             if has_detection:
@@ -268,11 +282,9 @@ def process_videos():
                 print(f"      Image: {image_path}")
                 print(f"      Label: {label_path} ({len(yolo_labels)} detection(s))")
                 
-                # --- APPLY COOLDOWN CURSOR ---
-                # Jump forward in the video file
+                # Jump forward
                 current_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 new_pos = current_pos + cooldown_frames
-                
                 if new_pos < total_frames:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
                     frame_idx = int(new_pos)
