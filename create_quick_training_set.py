@@ -56,8 +56,8 @@ LABELS_DIR = os.path.join(DATASET_DIR, "labels")
 
 # Sensitivity: How much pixel change triggers the AI? (Lower = more sensitive)
 # 1.0 means 1% of the screen changed pixels.
-# Optimized for static security camera footage based on dataset analysis
-MOTION_THRESHOLD_PERCENTAGE = 0.015  # Captures top 5% most active frames
+# Set to 0 to accept any motion above 0
+MOTION_THRESHOLD_PERCENTAGE = 0.0  # Accept any motion detected
 
 # Cooldown: If we find a target, how many seconds to skip?
 COOLDOWN_SECONDS = 1.5  # Balanced to avoid duplicates while maintaining diversity 
@@ -73,9 +73,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_ID = "microsoft/Florence-2-large"
 REVISION = "21a599d414c4d928c9032694c424fb94458e3594"
 
-# Keywords to detect cats in captions (including plurals and common variations)
-CAT_KEYWORDS = ["cat", "cats", "kitten", "kittens", "feline", "felines", "kitty", "kitties"]
-
 print(f"Loading Teacher Model ({DEVICE})...")
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, trust_remote_code=True, attn_implementation="eager", revision=REVISION
@@ -87,11 +84,11 @@ TARGETS = [
     {"prompt": "black cat",  "id": 1, "name": "Nala"}
 ]
 
-def check_target_presence(image_pil):
+def check_target_presence(image_pil, target_name):
     """
-    Check if a cat is present in the image.
+    Check if a target (e.g., 'orange cat', 'black cat') is present in the image.
     Uses caption task to determine presence before running expensive grounding.
-    Returns: True if a cat is likely present, False otherwise, and the caption
+    Returns: True if target is likely present, False otherwise
     """
     task_prompt = "<CAPTION>"
     results = processor(text=task_prompt, images=image_pil, return_tensors="pt")
@@ -109,12 +106,11 @@ def check_target_presence(image_pil):
     )
     
     caption = parsed_answer[task_prompt].lower()
-    # Check if a cat is present in the image
-    # Use lenient matching: just check if any cat-related keyword is mentioned
-    # The subsequent grounding task will handle specific target matching (orange/black)
-    has_cat = any(word in caption for word in CAT_KEYWORDS)
+    # Check if target words appear in the caption
+    target_words = target_name.lower().split()
+    is_present = all(word in caption for word in target_words)
     
-    return has_cat, caption
+    return is_present, caption
 
 def run_florence_inference(image_pil, text_prompt):
     """
@@ -206,16 +202,18 @@ def process_videos():
             yolo_labels = []
             has_detection = False
             
-            # First, check if any cat is present in the image
-            is_present, caption = check_target_presence(image_pil)
-            
-            if not is_present:
-                # No cat detected, skip this frame
-                frame_idx += 1
-                continue
-            
-            # Cat detected! Now check which specific targets (orange/black) are present
+            # First, check which targets are present in the image
+            present_targets = []
             for target in TARGETS:
+                is_present, caption = check_target_presence(image_pil, target["prompt"])
+                if is_present:
+                    present_targets.append(target)
+                    # print(f"    ✓ Found {target['name']} (Caption: {caption})")
+                # else:
+                    # print(f"    ✗ No {target['name']} detected")
+            
+            # Only run grounding on confirmed targets
+            for target in present_targets:
                 prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
                 
