@@ -282,21 +282,21 @@ def process_videos():
                 print(f"      Image: {image_path}")
                 print(f"      Label: {label_path} ({len(yolo_labels)} detection(s))")
                 
-                # Jump forward
-                current_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
-                new_pos = current_pos + cooldown_frames
-                if new_pos < total_frames:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
-                    frame_idx = int(new_pos)
-                    print(f"      Jumping ahead {cooldown_frames} frames to frame {frame_idx}")
-                    # Reset motion baseline because we jumped (scene might have changed)
-                    prev_gray_small = None 
-                else:
-                    print(f"      Reached end of video after cooldown jump")
-                    break # End of video
+                
             else:
                 print(f"     ✗ No detections found despite motion - continuing...")
-                frame_idx += 1
+            # Jump forward
+            current_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            new_pos = current_pos + cooldown_frames
+            if new_pos < total_frames:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
+                frame_idx = int(new_pos)
+                print(f"      Jumping ahead {cooldown_frames} frames to frame {frame_idx}")
+                # Reset motion baseline because we jumped (scene might have changed)
+                prev_gray_small = None 
+            else:
+                print(f"      Reached end of video after cooldown jump")
+                break # End of video    
 
         cap.release()
         print(f"  Video complete: {frames_checked} frames checked, {frames_with_motion} had motion above threshold")
