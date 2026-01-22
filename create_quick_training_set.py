@@ -3,6 +3,8 @@ import torch
 import os
 import sys
 import numpy as np
+import time
+from collections import defaultdict
 from pathlib import Path
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
@@ -27,6 +29,45 @@ class SuppressStderr:
             os.close(fd)
 
 # ================= 2. CONFIGURATION =================
+# ================= 2. PERFORMANCE TRACKER CLASS =================
+class PerformanceTracker:
+    def __init__(self):
+        self.times = defaultdict(float)
+        self.counts = defaultdict(int)
+        self.current_start = None
+
+    def track(self, name):
+        """Context manager to time a block of code"""
+        return TimingContext(self, name)
+
+    def print_stats(self):
+        total_time = sum(self.times.values())
+        print(f"\n{'='*25} PERFORMANCE BREAKDOWN {'='*25}")
+        print(f"{'Category':<25} | {'Time (s)':<10} | {'%':<6} | {'Calls':<8}")
+        print("-" * 60)
+        
+        # Sort by most time consumed
+        for name, duration in sorted(self.times.items(), key=lambda x: x[1], reverse=True):
+            perc = (duration / total_time) * 100 if total_time > 0 else 0
+            count = self.counts[name]
+            print(f"{name:<25} | {duration:<10.2f} | {perc:<6.1f} | {count:<8}")
+            
+        print("-" * 60)
+        print(f"{'TOTAL TRACKED':<25} | {total_time:<10.2f} | 100.0  |")
+        print("=" * 60)
+
+class TimingContext:
+    def __init__(self, tracker, name):
+        self.tracker = tracker
+        self.name = name
+    def __enter__(self):
+        self.start = time.perf_counter()
+    def __exit__(self, *args):
+        dt = time.perf_counter() - self.start
+        self.tracker.times[self.name] += dt
+        self.tracker.counts[self.name] += 1
+
+# ================= 3. CONFIGURATION =================
 INPUT_VIDEO_FOLDER = "./downloads_big1h"
 OUTPUT_DIR = "./output"
 BASE_DATASET_DIR = os.path.join(OUTPUT_DIR, "dataset_training")
@@ -183,6 +224,9 @@ def process_videos():
     video_files = sorted(list(Path(INPUT_VIDEO_FOLDER).glob("*.mp4")))
     total_samples = 0
     
+    # Initialize Tracker
+    perf = PerformanceTracker()
+    
     print(f"Starting Smart Motion Auto-Labeling on {len(video_files)} videos...")
     print(f"Input folder: {INPUT_VIDEO_FOLDER}")
     print(f"Output folder: {DATASET_DIR}")
@@ -213,8 +257,9 @@ def process_videos():
             if not ret: break
             
             # --- 1. FAST MOTION CHECK ---
-            motion_score, current_gray_small = get_motion_score(frame, prev_gray_small)
-            prev_gray_small = current_gray_small 
+            with perf.track("1. Motion Check"):
+                motion_score, current_gray_small = get_motion_score(frame, prev_gray_small)
+                prev_gray_small = current_gray_small 
             frames_checked += 1
             
             # Progress update every 100 frames
@@ -231,14 +276,17 @@ def process_videos():
             # --- 2. HEAVY LIFTING (Only runs if motion detected) ---
             print(f"  >> Running AI detection...")
             
-            image_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            w, h = image_pil.size
+            with perf.track("2. Frame Prep"):
+                image_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                w, h = image_pil.size
+            
             yolo_labels = []
             has_detection = False
             
             # Check for each target directly (skipping the "is it there?" check)
             for target in TARGETS:
-                prediction = run_florence_inference(image_pil, target["prompt"])
+                with perf.track("3. AI Inference (Florence)"):
+                    prediction = run_florence_inference(image_pil, target["prompt"])
                 bboxes = prediction.get('bboxes', [])
                 print(f"Found {len(bboxes)} bbox(es)")
                 
@@ -251,7 +299,8 @@ def process_videos():
                         continue 
                     
                     # B. Verify Content (Crop & Check)
-                    is_valid, crop_caption = verify_crop(image_pil, bbox, target["prompt"])
+                    with perf.track("4. Verification (Crop)"):
+                        is_valid, crop_caption = verify_crop(image_pil, bbox, target["prompt"])
                     
                     if is_valid:
                         # Normalize for YOLO
@@ -269,13 +318,14 @@ def process_videos():
 
             # --- 3. SAVE & COOLDOWN ---
             if has_detection:
-                base_name = f"{video_path.stem}_{frame_idx}"
-                image_path = os.path.join(IMAGES_DIR, f"{base_name}.jpg")
-                label_path = os.path.join(LABELS_DIR, f"{base_name}.txt")
-                
-                cv2.imwrite(image_path, frame)
-                with open(label_path, "w") as f:
-                    f.write("\n".join(yolo_labels))
+                with perf.track("5. Disk I/O (Save)"):
+                    base_name = f"{video_path.stem}_{frame_idx}"
+                    image_path = os.path.join(IMAGES_DIR, f"{base_name}.jpg")
+                    label_path = os.path.join(LABELS_DIR, f"{base_name}.txt")
+                    
+                    cv2.imwrite(image_path, frame)
+                    with open(label_path, "w") as f:
+                        f.write("\n".join(yolo_labels))
                 
                 total_samples += 1
                 print(f"  [+] ✓ SAVED Sample #{total_samples} at {frame_idx/fps:.1f}s (Motion: {motion_score:.4f}%)")
@@ -301,6 +351,9 @@ def process_videos():
         cap.release()
         print(f"  Video complete: {frames_checked} frames checked, {frames_with_motion} had motion above threshold")
 
+    # Print performance statistics
+    perf.print_stats()
+    
     print(f"\n" + "="*60)
     print(f"DISTILLATION COMPLETE")
     print(f"="*60)
