@@ -27,3 +27,4 @@ Thumbs.db
 # Temporary files
 /tmp/
 *.tmp
+copy_file.py
