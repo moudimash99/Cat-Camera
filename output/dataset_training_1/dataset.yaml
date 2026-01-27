@@ -1,6 +1,0 @@
-path: .
-train: images
-val: images
-
-nc: 2
-names: ['class0', 'class1']
