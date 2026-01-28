@@ -28,3 +28,8 @@ Thumbs.db
 /tmp/
 *.tmp
 copy_file.py
+
+
+downloads/*
+inference_results/*
+merged_videos/*

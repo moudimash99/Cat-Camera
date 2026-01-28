@@ -19,8 +19,8 @@ REMOTE_BASE_DIR = "/home/moudimash99/frigate/storage/recordings"
 LOCAL_DOWNLOAD_DIR = "./downloads"
 
 # Time Range to Download
-START_TIME_STR = "2026-01-18 01:30:00" 
-END_TIME_STR   = "2026-01-18 2:15:00"
+START_TIME_STR = "2026-01-28 10:30:00" 
+END_TIME_STR   = "2026-01-28 11:15:00"
 # =================================================
 
 def download_clips():
@@ -203,8 +203,8 @@ def merge_videos_into_chunks(input_dir, output_dir, chunk_duration_seconds=300):
             print(f"Error merging chunk {chunk_idx}: {e}")
 
 if __name__ == "__main__":
-    # download_clips()
-    copy_files_from_ssh([file_path], LOCAL_DOWNLOAD_DIR)
+    download_clips()
+    # copy_files_from_ssh([file_path], LOCAL_DOWNLOAD_DIR)
     
     # Uncomment to merge downloaded videos into 5-minute chunks:
-    # merge_videos_into_chunks(LOCAL_DOWNLOAD_DIR, "./merged_videos")
+    merge_videos_into_chunks(LOCAL_DOWNLOAD_DIR, "./merged_videos")
