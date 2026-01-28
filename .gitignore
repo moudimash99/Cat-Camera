@@ -29,7 +29,7 @@ Thumbs.db
 *.tmp
 copy_file.py
 
-
+output/*
 downloads/*
 inference_results/*
 merged_videos/*
