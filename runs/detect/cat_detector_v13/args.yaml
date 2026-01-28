@@ -1,7 +1,11 @@
 task: detect
 mode: train
 model: yolo11s.pt
+<<<<<<< HEAD
 data: C:\Users\moudi\Documents\Coding\Cat Camera\output\dataset_final\data.yaml
+=======
+data: C:\Users\Theotime\Documents\test\Cat-Camera\output\dataset_final\data.yaml
+>>>>>>> 5b162afcbbc56d2aabe410b1ea09a8aa1a866980
 epochs: 70
 time: null
 patience: 100
@@ -10,7 +14,11 @@ imgsz: 640
 save: true
 save_period: -1
 cache: false
+<<<<<<< HEAD
 device: cpu
+=======
+device: '0'
+>>>>>>> 5b162afcbbc56d2aabe410b1ea09a8aa1a866980
 workers: 8
 project: null
 name: cat_detector_v13
@@ -105,4 +113,8 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
+<<<<<<< HEAD
 save_dir: C:\Users\moudi\Documents\Coding\Cat Camera\runs\detect\cat_detector_v13
+=======
+save_dir: C:\Users\Theotime\Documents\test\Cat-Camera\runs\detect\cat_detector_v13
+>>>>>>> 5b162afcbbc56d2aabe410b1ea09a8aa1a866980

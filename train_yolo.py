@@ -9,7 +9,7 @@ def train_model():
 
     # 2. Train the model
     results = model.train(
-        data=r"C:\Users\moudi\Documents\Coding\Cat Camera\output\dataset_final\data.yaml", # Path to your YAML
+        data=r"C:\Users\Theotime\Documents\test\Cat-Camera\output\dataset_final\data.yaml", # Path to your YAML
         epochs=70,             # How many times to go through the data (50 is a good start)
         imgsz=640,             # Image resolution (640 is standard)
         batch=16,              # How many images to process at once
