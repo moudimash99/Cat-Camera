@@ -1,5 +1,6 @@
 from ultralytics import YOLO
-
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def train_model():
     # 1. Load a pre-trained model (Transfer Learning)
     # 'yolo11n.pt' is the "Nano" version (Fastest, usually good enough for cats)
@@ -12,7 +13,7 @@ def train_model():
         epochs=70,             # How many times to go through the data (50 is a good start)
         imgsz=640,             # Image resolution (640 is standard)
         batch=16,              # How many images to process at once
-        device=1,              # Use '0' for GPU, 'cpu' for CPU
+        device='cpu',              # Use '0' for GPU, 'cpu' for CPU
         name='cat_detector_v1' # Name of the output folder
     )
     

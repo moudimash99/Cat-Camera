@@ -1,4 +1,4 @@
-path: C:/Users/moudi/Documents/Coding/Cat Camera/output/dataset_final
+path: C:\Users\moudi\Documents\Coding\Cat Camera\output\dataset_final
 train: train/images
 val: val/images
 
