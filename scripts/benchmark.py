@@ -8,7 +8,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 def benchmark_laptop():
     # 1. Setup
-    model_path = r"runs\detect\cat_detector_v15\weights\best.pt"
+    model_path = r"runs\detect\cat_detector_v15\weights\best_openvino_model"
     # Update this to the name of one of your video files
     video_path = r"output\merged_videos\merged_005_20260128_105503.mp4" 
     
